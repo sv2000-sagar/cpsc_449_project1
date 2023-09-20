@@ -22,6 +22,9 @@ class Class(BaseModel):
     MaxEnrollment: int = 40
     AutomaticEnrollmentFrozen: int = 0
 
+class UpdateInstructor(BaseModel):
+    id: int
+
 app = FastAPI()
 
 def get_db():
@@ -417,8 +420,9 @@ def create_enrollment(
     response.headers["Location"] = f"/classes/{newClassId}"
     return {'status':"Class created successfully"}
 
+# Remove Existing Sections
 @app.delete("/classes/{ClassId}",status_code=status.HTTP_200_OK)
-def drop_enrollment(
+def remove_section(
     ClassId:int , db: sqlite3.Connection = Depends(get_db)
 ):
     # checking if class exist
@@ -443,3 +447,69 @@ def drop_enrollment(
             detail={"type": type(e).__name__, "msg": str(e)},
         )
     return {'status':"Class Deleted Successfully"}
+
+# Change Instructor for a Section
+@app.put("/classes/{ClassId}/instructor",status_code=status.HTTP_200_OK)
+def change_instructor(
+    ClassId:int, Instructor:UpdateInstructor , db: sqlite3.Connection = Depends(get_db)
+):
+    # checking if class exist
+    cur = db.execute("Select * from classes where ClassId = ?",[ClassId])
+    entry = cur.fetchone()
+    if(not entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Class Does Not Exist',
+            )
+    # checking if instructor exist
+    cur = db.execute("Select * from instructors where InstructorId = ?",[Instructor.id])
+    entry = cur.fetchone()
+    if(not entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Instructor Does Not Exist',
+            )
+    try:
+        db.execute(
+            """
+            UPDATE Classes SET InstructorId = ? where ClassId = ?
+            """,
+            [Instructor.id,ClassId])
+        db.commit()
+    except sqlite3.IntegrityError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_40, 
+            detail={"type": type(e).__name__, "msg": str(e)},
+        )
+    return {'status':"Instructor Changed Successfully"}
+
+
+
+# Freeze automatic enrollment from waiting lists
+@app.put("/classes/{ClassId}/freeze-enrollment",status_code=status.HTTP_200_OK)
+def freeze_enrollment(
+    ClassId:int, Instructor:UpdateInstructor , db: sqlite3.Connection = Depends(get_db)
+):
+    # checking if class exist
+    cur = db.execute("Select * from classes where ClassId = ?",[ClassId])
+    entry = cur.fetchone()
+    if(not entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Class Does Not Exist',
+            )
+    try:
+        db.execute(
+            """
+            UPDATE Classes SET AutomaticEnrollmentFrozen = 1 where ClassId = ?
+            """,
+            [ClassId])
+        db.commit()
+    except sqlite3.IntegrityError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_40, 
+            detail={"type": type(e).__name__, "msg": str(e)},
+        )
+    return {'status':"Successfully turned on automatic enrollment frozen"}
