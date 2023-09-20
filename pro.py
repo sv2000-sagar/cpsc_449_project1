@@ -3,7 +3,7 @@ import contextlib
 import logging.config
 import sqlite3
 import datetime
-import typing
+from typing import Optional
 import aiosqlite
 
 from fastapi import FastAPI, Depends, Response, HTTPException, status
@@ -12,6 +12,15 @@ from pydantic import BaseModel
 class Enrollment(BaseModel):
     StudentId: int
     ClassId: int
+
+class Class(BaseModel):
+    InstructorId: int
+    Department: str
+    CourseCode: str
+    SectionNumber: int
+    ClassName: str
+    MaxEnrollment: int = 40
+    AutomaticEnrollmentFrozen: int = 0
 
 app = FastAPI()
 
@@ -24,7 +33,7 @@ STUDENTS API ENDPOINTS
 """
 
 # List available classses to students
-@app.get("/classes")
+@app.get("/classes", status_code=status.HTTP_200_OK)
 def list_classes(db: sqlite3.Connection = Depends(get_db)):
     classes = db.execute("SELECT * FROM classes where CurrentEnrollment < MaxEnrollment")
     if not classes:
@@ -368,3 +377,69 @@ def retrieve_Instructors_Dropped_Classes(
 #     return  {
 #             "status": "Dropped Successfully"
 #             }
+
+
+#### Registrar's API Endpoints ####
+
+# Add New Classes and Sections
+@app.post("/classes/", status_code=status.HTTP_201_CREATED)
+def create_enrollment(
+    class_: Class, response: Response, db: sqlite3.Connection = Depends(get_db)
+):
+    
+    # checking if same class and section exist
+    cur = db.execute("Select * from classes where ClassName = ? and SectionNumber = ?",[class_.ClassName, class_.SectionNumber])
+    entry = cur.fetchone()
+    newClassId = 0
+    if(entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Class Already Exist',
+            )
+    try:
+        cur = db.execute(
+            """
+            INSERT INTO Classes(InstructorId,Department,CourseCode,SectionNumber,
+            ClassName,CurrentEnrollment,MaxEnrollment,AutomaticEnrollmentFrozen)
+            VALUES(?, ?, ? , ?, ?, 0, ?, ?) 
+            """,
+                [class_.InstructorId,class_.Department,class_.CourseCode,class_.SectionNumber,
+                class_.ClassName,class_.MaxEnrollment,class_.AutomaticEnrollmentFrozen]
+            )
+        newClassId = cur.lastrowid
+        db.commit()
+    except sqlite3.IntegrityError as e:
+        db.rollback()
+        raise HTTPException(
+        status_code=status.HTTP_40, 
+        detail={"type": type(e).__name__, "msg": str(e)},
+        )
+    response.headers["Location"] = f"/classes/{newClassId}"
+    return {'status':"Class created successfully"}
+
+@app.delete("/classes/{ClassId}",status_code=status.HTTP_200_OK)
+def drop_enrollment(
+    ClassId:int , db: sqlite3.Connection = Depends(get_db)
+):
+    # checking if class exist
+    cur = db.execute("Select * from classes where ClassId = ?",[ClassId])
+    entry = cur.fetchone()
+    if(not entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Class Does Not Exist',
+            )
+    try:
+        db.execute(
+            """
+            DELETE FROM Classes WHERE ClassId= ? 
+            """,
+            [ClassId])
+        db.commit()
+    except sqlite3.IntegrityError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_40, 
+            detail={"type": type(e).__name__, "msg": str(e)},
+        )
+    return {'status':"Class Deleted Successfully"}
