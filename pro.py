@@ -4,9 +4,8 @@ import logging.config
 import sqlite3
 import datetime
 from typing import Optional
-import aiosqlite
-
 from fastapi import FastAPI, Depends, Response, HTTPException, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 class Enrollment(BaseModel):
@@ -23,21 +22,27 @@ class Class(BaseModel):
     AutomaticEnrollmentFrozen: int = 0
 
 class UpdateInstructor(BaseModel):
-    id: int
+    InstructorId: int
 
 app = FastAPI()
+
 
 def get_db():
     with contextlib.closing(sqlite3.connect("pro1.db")) as db:
         db.row_factory = sqlite3.Row
         yield db
+
+@app.get("/",status_code=status.HTTP_308_PERMANENT_REDIRECT)
+def default():
+    return RedirectResponse("/docs")
+
 """
 STUDENTS API ENDPOINTS
 """
 
 # List available classses to students
 @app.get("/classes", status_code=status.HTTP_200_OK)
-def list_classes(db: sqlite3.Connection = Depends(get_db)):
+def list_available_classes(db: sqlite3.Connection = Depends(get_db)):
     classes = db.execute("SELECT * FROM classes where CurrentEnrollment < MaxEnrollment")
     if not classes:
         raise HTTPException(
@@ -114,7 +119,7 @@ def create_enrollment(
             db.execute("""
                     UPDATE Classes SET CurrentEnrollment = ? where ClassId = ? 
                     """,
-                    [(currentEnrollment-1),enrollment.ClassId])
+                    [(currentEnrollment+1),enrollment.ClassId])
             db.commit()
         except sqlite3.IntegrityError as e:
             raise HTTPException(
@@ -148,7 +153,7 @@ def create_enrollment(
         return {"success":e}
 
 # Delete enrollment of student
-@app.delete("/students/{StudentId}/enrollments/{ClassId}")
+@app.delete("/students/{StudentId}/enrollments/{ClassId}",status_code=status.HTTP_200_OK)
 def drop_enrollment(
     StudentId:int, ClassId:int , db: sqlite3.Connection = Depends(get_db)
 ):
@@ -262,8 +267,8 @@ def drop_enrollment(
 
 
 # View Waiting List Position
-@app.get("/students/{StudentId}/waiting-list/{ClassId}")
-def retrieve_position(
+@app.get("/students/{StudentId}/waiting-list/{ClassId}",status_code=status.HTTP_200_OK)
+def retrieve_waitinglist_position(
     StudentId: int, ClassId: int, db: sqlite3.Connection = Depends(get_db)
 ):
     cur = db.execute("SELECT * FROM WaitingLists WHERE StudentId = ? and ClassId= ?", [StudentId,ClassId])
@@ -279,8 +284,8 @@ def retrieve_position(
     
 
 # Remove from Waiting List
-@app.delete("/students/{StudentId}/waiting-list/{ClassId}")
-def deleteFromWaitingList(
+@app.delete("/students/{StudentId}/waiting-list/{ClassId}",status_code=status.HTTP_200_OK)
+def delete_waitinglist(
     StudentId: int, ClassId: int, db: sqlite3.Connection = Depends(get_db)
 ):
     # Checking if entry exist in waitinglist
@@ -318,7 +323,7 @@ Instructors API ENDPOINTS
 """
 
 # View Current Enrollment for Their Classes
-@app.get("/instructors/{InstructorId}/classes")
+@app.get("/instructors/{InstructorId}/classes",status_code=status.HTTP_200_OK)
 def retrieve_Instructors_Classes(
     InstructorId: int, db: sqlite3.Connection = Depends(get_db)
 ):
@@ -333,7 +338,7 @@ def retrieve_Instructors_Classes(
             }
 
 # View the current waiting list for the course
-@app.get("/classes/{ClassId}/wait-list")
+@app.get("/classes/{ClassId}/wait-list",status_code=status.HTTP_200_OK)
 def retrieve_Classes_WaitingList(
     ClassId: int, db: sqlite3.Connection = Depends(get_db)
 ):
@@ -349,8 +354,8 @@ def retrieve_Classes_WaitingList(
             }
 
 # View Students Who Have Dropped the Class
-@app.get("/instructors/{ClassId}/dropped-students/")
-def retrieve_Instructors_Dropped_Classes(
+@app.get("/instructors/{ClassId}/dropped-students/",status_code=status.HTTP_200_OK)
+def retrieve_instructors_dropped_students(
     ClassId:int, db: sqlite3.Connection = Depends(get_db)
 ):
     cur = db.execute("SELECT StudentId FROM Enrollments WHERE  ClassId = ? and Dropped = 1", [ClassId])
@@ -360,33 +365,135 @@ def retrieve_Instructors_Dropped_Classes(
             status_code=status.HTTP_404_NOT_FOUND, detail="not found"
         )
     return  {
-            "DroppedClasses": studentsWhoDropped
+            "Dropped Students": studentsWhoDropped
             }
 
 # Drop students administratively
-# @app.put("/instructors/{ClassId}/drop-student/{StudentId}/")
-# def drop_students_administratively(
-#     ClassId:int, StudentId:int, db: sqlite3.Connection = Depends(get_db)
-# ):
-#     try:
-#         db.execute("UPDATE Enrollments SET dropped = 1 where ClassId = ? and StudentId = ?", [ClassId, StudentId])
-#         db.commit()
-#     except sqlite3.IntegrityError as e:
-#         db.rollback()
-#         raise HTTPException(
-#                 status_code=status.HTTP_409_CONFLICT,
-#                 detail={"type": type(e).__name__, "msg": str(e), "status":"dropped failed"},
-#             )
-#     return  {
-#             "status": "Dropped Successfully"
-#             }
+@app.delete("/instructors/{InstructorId}/drop-student/{StudentId}/{ClassId}")
+def drop_students_administratively(
+    InstructorId:int, StudentId:int, ClassId:int, db: sqlite3.Connection = Depends(get_db)
+):
+    cur = db.execute("select CurrentEnrollment, MaxEnrollment, AutomaticEnrollmentFrozen, InstructorId from Classes where ClassId = ?",[ClassId])
+    entries = cur.fetchone()
+    # check if class exists
+    if(not entries):
+        raise HTTPException(status_code=400, detail="Class does not exist")
+    currentEnrollment, maxEnrollment, automaticEnrollmentFrozen, instructorId = entries
+
+    # checking if InstructorId is valid
+    if(InstructorId != instructorId):
+        raise HTTPException(status_code=400, detail="You are not the instructor of this class")
+
+    # Checking if student was enrolled to the course
+    cur = db.execute(
+        """
+        Select * from Enrollments where ClassId = ? and  StudentId = ? and dropped = 0
+        """,
+        [ClassId, StudentId])
+    entries = cur.fetchone()
+    if(not entries):
+        raise HTTPException(status_code=400, detail="Student is not enrolled in this class")
+     
+    # dropping the course
+    try:
+        db.execute("""
+                    UPDATE Enrollments SET dropped = 1 where ClassId = ? and StudentId = ?
+                    """,
+                    [ClassId,StudentId]) 
+        db.execute("""
+                    UPDATE Classes SET CurrentEnrollment = ? where ClassId = ? 
+                    """,
+                    [(currentEnrollment-1),ClassId])
+        db.commit()
+    except sqlite3.IntegrityError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"type": type(e).__name__, "msg": str(e)},
+        )
+    
+    cur = db.execute("Select * from WaitingLists where ClassId = ? ORDER BY WaitingListPos ASC",[ClassId])
+    entry = cur.fetchone()
+    if (not automaticEnrollmentFrozen and (currentEnrollment-1)<maxEnrollment and entry):
+
+        # Enrolling student who is on top of the waitlist
+                # Checking if student was enrolled to that course earlier
+        cur = db.execute("Select * from Enrollments where ClassId = ? and  StudentId = ?",[ClassId, entry['StudentId']])
+        enrollment_entry = cur.fetchone()
+        if(enrollment_entry):
+            try:
+                cur = db.execute("UPDATE Enrollments SET dropped = 0 where ClassId = ? and StudentId = ?",[ClassId, entry['StudentId']])
+                db.execute("""
+                        UPDATE Classes SET CurrentEnrollment = ? where ClassId = ? 
+                        """,
+                        [(currentEnrollment),ClassId])
+                db.execute("""
+                            DELETE FROM WaitingLists WHERE StudentId = ? and ClassId= ? 
+                            """,
+                            [entry['StudentId'],ClassId])
+                
+                db.commit()
+            except sqlite3.IntegrityError as e:
+                raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"type": type(e).__name__, "msg": str(e)},
+            )
+        else: # adding him to the enrollments
+            try:
+                cur = db.execute(
+                """
+                INSERT INTO enrollments(StudentId,ClassID,EnrollmentDate)
+                VALUES(?, ?, datetime('now')) 
+                """,
+                [entry['StudentId'], ClassId],
+            )
+                db.execute("""
+                            DELETE FROM WaitingLists WHERE StudentId = ? and ClassId= ? 
+                            """,
+                            [entry['StudentId'],ClassId])
+                db.execute("""
+                        UPDATE Classes SET CurrentEnrollment = ? where ClassId = ? 
+                        """,
+                        [(currentEnrollment),ClassId])
+                db.commit()
+            except sqlite3.IntegrityError as e:
+                db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={"type": type(e).__name__, "msg": str(e)},
+                )
+        # updating waitlist positions
+        cur = db.execute("Select * from WaitingLists where ClassId = ? ORDER BY DateAdded ASC",[ClassId])
+        entries = cur.fetchall()
+        for entry in entries:
+            try:
+                db.execute("""
+                            UPDATE WaitingLists SET WaitingListPos = ? where ClassId = ? and WaitListId = ?
+                            """,
+                            [(entry['WaitingListPos']-1),ClassId,entry['WaitListId']])
+                db.commit()
+            except sqlite3.IntegrityError as e:
+                db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={"type": type(e).__name__, "msg": str(e)},
+                )
+        db.commit()
+        return  {
+                "Message": "Student Dropped Successfully"
+            }
+    
+    db.commit()
+    return  {
+                "Message": "Student Dropped Successfully"
+            }
 
 
 #### Registrar's API Endpoints ####
 
 # Add New Classes and Sections
 @app.post("/classes/", status_code=status.HTTP_201_CREATED)
-def create_enrollment(
+def create_class(
     class_: Class, response: Response, db: sqlite3.Connection = Depends(get_db)
 ):
     
@@ -462,7 +569,7 @@ def change_instructor(
                 detail= 'Class Does Not Exist',
             )
     # checking if instructor exist
-    cur = db.execute("Select * from instructors where InstructorId = ?",[Instructor.id])
+    cur = db.execute("Select * from instructors where InstructorId = ?",[Instructor.InstructorId])
     entry = cur.fetchone()
     if(not entry):
         raise HTTPException(
@@ -474,7 +581,7 @@ def change_instructor(
             """
             UPDATE Classes SET InstructorId = ? where ClassId = ?
             """,
-            [Instructor.id,ClassId])
+            [Instructor.InstructorId,ClassId])
         db.commit()
     except sqlite3.IntegrityError as e:
         db.rollback()
@@ -485,11 +592,10 @@ def change_instructor(
     return {'status':"Instructor Changed Successfully"}
 
 
-
 # Freeze automatic enrollment from waiting lists
 @app.put("/classes/{ClassId}/freeze-enrollment",status_code=status.HTTP_200_OK)
 def freeze_enrollment(
-    ClassId:int, Instructor:UpdateInstructor , db: sqlite3.Connection = Depends(get_db)
+    ClassId:int, db: sqlite3.Connection = Depends(get_db)
 ):
     # checking if class exist
     cur = db.execute("Select * from classes where ClassId = ?",[ClassId])
@@ -499,6 +605,11 @@ def freeze_enrollment(
                 status_code=status.HTTP_409_CONFLICT,
                 detail= 'Class Does Not Exist',
             )
+    if(entry['AutomaticEnrollmentFrozen'] == 1):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Automatic Enrollment Frozen is already ON',
+            ) 
     try:
         db.execute(
             """
