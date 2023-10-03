@@ -63,7 +63,7 @@ def create_enrollment(
     cur = db.execute("Select * from Enrollments where ClassId = ? and  StudentId = ? and dropped = 0",[enrollment.ClassId, enrollment.StudentId])
     sameClasses = cur.fetchall()
     if(sameClasses):
-        raise HTTPException(status_code=400, detail="You are already enrolled")
+        raise HTTPException(status_code=409, detail="You are already enrolled") #HTTP status code 409, which stands for "Conflict." 
     
     # Checking if Class is full then adding student to waitlist
     if(currentEnrollment >= maxEnrollment):
@@ -72,19 +72,18 @@ def create_enrollment(
         cur = db.execute("Select * from WaitingLists where ClassId = ? and  StudentId = ?",[enrollment.ClassId, enrollment.StudentId])
         alreadyOnWaitlist = cur.fetchall()
         if(alreadyOnWaitlist):
-            raise HTTPException(status_code=400, detail="You are already on waitlist")
-  
+            raise HTTPException(status_code=409, detail="You are already on waitlist") #HTTP status code 409, which stands for "Conflict." 
         # Checking that student is not on more than 3 waitlist (not checked)
         cur = db.execute("Select * from Waitinglists where StudentId = ?",[enrollment.StudentId])
         moreThanThree = cur.fetchall()
         if(len(moreThanThree)>3):
-            raise HTTPException(status_code=400, detail="Class is full and You are already on three waitlists so, you can't be placed on a waitlist")
+            raise HTTPException(status_code=409, detail="Class is full and You are already on three waitlists so, you can't be placed on a waitlist") #HTTP status code 409, which stands for "Conflict." 
         
         # Adding to the waitlist if waitlist is not full
         cur = db.execute("Select * from Waitinglists where ClassId = ?",[enrollment.ClassId])
         entries = cur.fetchall()
         if(len(entries)>=15):
-            raise HTTPException(status_code=400, detail="Waiting List if full for this class")
+            raise HTTPException(status_code=403, detail="Waiting List if full for this class") # Forbidden
         waitListPosition = len(entries)+1
         e = dict(enrollment)
         try:
@@ -161,14 +160,14 @@ def drop_enrollment(
     entries = cur.fetchone()
     # check if class exists
     if(not entries):
-        raise HTTPException(status_code=400, detail="Class does not exist")
+        raise HTTPException(status_code=404, detail="Class does not exist")
     currentEnrollment, maxEnrollment, automaticEnrollmentFrozen = entries
 
     # Checking if student was enrolled to the course
     cur = db.execute("Select * from Enrollments where ClassId = ? and  StudentId = ? and dropped = 0",[ClassId, StudentId])
     entries = cur.fetchone()
     if(not entries):
-        raise HTTPException(status_code=400, detail="You are not enrolled in this course")
+        raise HTTPException(status_code=404, detail="You are not enrolled in this course") #student enrollement not found
     # student_dropped = entries['dropped']
      
     # dropping the course
@@ -374,15 +373,16 @@ def drop_students_administratively(
     InstructorId:int, StudentId:int, ClassId:int, db: sqlite3.Connection = Depends(get_db)
 ):
     cur = db.execute("select CurrentEnrollment, MaxEnrollment, AutomaticEnrollmentFrozen, InstructorId from Classes where ClassId = ?",[ClassId])
+
     entries = cur.fetchone()
     # check if class exists
     if(not entries):
-        raise HTTPException(status_code=400, detail="Class does not exist")
+        raise HTTPException(status_code=404, detail="Class does not exist") #Class not Found
     currentEnrollment, maxEnrollment, automaticEnrollmentFrozen, instructorId = entries
 
     # checking if InstructorId is valid
     if(InstructorId != instructorId):
-        raise HTTPException(status_code=400, detail="You are not the instructor of this class")
+        raise HTTPException(status_code=403, detail="You are not the instructor of this class") # Forbidden srtatus code
 
     # Checking if student was enrolled to the course
     cur = db.execute(
@@ -392,7 +392,7 @@ def drop_students_administratively(
         [ClassId, StudentId])
     entries = cur.fetchone()
     if(not entries):
-        raise HTTPException(status_code=400, detail="Student is not enrolled in this class")
+        raise HTTPException(status_code=404, detail="Student is not enrolled in this class") #Not Found 
      
     # dropping the course
     try:
