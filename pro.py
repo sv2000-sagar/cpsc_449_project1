@@ -198,7 +198,7 @@ def drop_enrollment(
     cur = db.execute("Select * from Enrollments where ClassId = ? and  StudentId = ? and dropped = 0",[ClassId, StudentId])
     entries = cur.fetchone()
     if(not entries):
-        raise HTTPException(status_code=400, detail="You are not enrolled in this course")
+        raise HTTPException(status_code=404, detail="You are not enrolled in this course") #student enrollement not found
     # student_dropped = entries['dropped']
      
     # dropping the course
@@ -468,6 +468,7 @@ def drop_students_administratively(
     
     # check if class exists
     cur = db.execute("select CurrentEnrollment, MaxEnrollment, AutomaticEnrollmentFrozen, InstructorId from Classes where ClassId = ?",[ClassId])
+
     entries = cur.fetchone()
     if(not entries):
         raise HTTPException(status_code=404, detail="Class does not exist")
