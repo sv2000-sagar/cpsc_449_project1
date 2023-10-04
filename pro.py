@@ -56,14 +56,35 @@ def list_available_classes(db: sqlite3.Connection = Depends(get_db)):
 def create_enrollment(
     enrollment: Enrollment, response: Response, db: sqlite3.Connection = Depends(get_db)
 ):
-    cur = db.execute("select CurrentEnrollment, MaxEnrollment from Classes where ClassId = ?",[enrollment.ClassId])
-    currentEnrollment, maxEnrollment = cur.fetchone()
+    cur = db.execute("select CurrentEnrollment, MaxEnrollment, AutomaticEnrollmentFrozen from Classes where ClassId = ?",[enrollment.ClassId])
+    # checking if class exists
+    entry = cur.fetchone()
+    if(not entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Class Does Not Exist',
+            )
+    currentEnrollment, maxEnrollment, automaticEnrollmentFrozen = entry
+    # checking if student exist
+    cur = db.execute("Select * from Students where StudentId = ?",[enrollment.StudentId])
+    entry = cur.fetchone()
+    if(not entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Student Does Not Exist',
+            )
+    # Checking if enrollment frozen is on
+    if(automaticEnrollmentFrozen==1):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Enrollment is closed',
+            )
 
     # Checking if student is Already enrolled to the course
     cur = db.execute("Select * from Enrollments where ClassId = ? and  StudentId = ? and dropped = 0",[enrollment.ClassId, enrollment.StudentId])
     sameClasses = cur.fetchall()
     if(sameClasses):
-        raise HTTPException(status_code=400, detail="You are already enrolled")
+        raise HTTPException(status_code=409, detail="You are already enrolled") #HTTP status code 409, which stands for "Conflict." 
     
     # Checking if Class is full then adding student to waitlist
     if(currentEnrollment >= maxEnrollment):
@@ -72,19 +93,19 @@ def create_enrollment(
         cur = db.execute("Select * from WaitingLists where ClassId = ? and  StudentId = ?",[enrollment.ClassId, enrollment.StudentId])
         alreadyOnWaitlist = cur.fetchall()
         if(alreadyOnWaitlist):
-            raise HTTPException(status_code=400, detail="You are already on waitlist")
-  
+            raise HTTPException(status_code=409, detail="You are already on waitlist") #HTTP status code 409, which stands for "Conflict." 
+
         # Checking that student is not on more than 3 waitlist (not checked)
         cur = db.execute("Select * from Waitinglists where StudentId = ?",[enrollment.StudentId])
         moreThanThree = cur.fetchall()
         if(len(moreThanThree)>3):
-            raise HTTPException(status_code=400, detail="Class is full and You are already on three waitlists so, you can't be placed on a waitlist")
+            raise HTTPException(status_code=409, detail="Class is full and You are already on three waitlists so, you can't be placed on a waitlist") #HTTP status code 409, which stands for "Conflict." 
         
         # Adding to the waitlist if waitlist is not full
         cur = db.execute("Select * from Waitinglists where ClassId = ?",[enrollment.ClassId])
         entries = cur.fetchall()
         if(len(entries)>=15):
-            raise HTTPException(status_code=400, detail="Waiting List if full for this class")
+            raise HTTPException(status_code=403, detail="Waiting List if full for this class") # Forbidden
         waitListPosition = len(entries)+1
         e = dict(enrollment)
         try:
@@ -161,9 +182,18 @@ def drop_enrollment(
     entries = cur.fetchone()
     # check if class exists
     if(not entries):
-        raise HTTPException(status_code=400, detail="Class does not exist")
+        raise HTTPException(status_code=404, detail="Class does not exist")
     currentEnrollment, maxEnrollment, automaticEnrollmentFrozen = entries
 
+    # checking if student exist
+    cur = db.execute("Select * from Students where StudentId = ?",[StudentId])
+    entry = cur.fetchone()
+    if(not entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Student Does Not Exist',
+            )
+    
     # Checking if student was enrolled to the course
     cur = db.execute("Select * from Enrollments where ClassId = ? and  StudentId = ? and dropped = 0",[ClassId, StudentId])
     entries = cur.fetchone()
@@ -257,20 +287,32 @@ def drop_enrollment(
         return  {
                 "Message": "successfully dropped"
             }
-
-        
     db.commit()
     return  {
                 "Message": "successfully dropped"
             }
-
-
 
 # View Waiting List Position
 @app.get("/students/{StudentId}/waiting-list/{ClassId}",status_code=status.HTTP_200_OK)
 def retrieve_waitinglist_position(
     StudentId: int, ClassId: int, db: sqlite3.Connection = Depends(get_db)
 ):
+    # checking if student exist
+    cur = db.execute("Select * from Students where StudentId = ?",[StudentId])
+    entry = cur.fetchone()
+    if(not entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Student Does Not Exist',
+            )
+    # checking if class exist
+    cur = db.execute("Select * from classes where ClassId = ?",[ClassId])
+    entry = cur.fetchone()
+    if(not entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Class Does Not Exist',
+            )
     cur = db.execute("SELECT * FROM WaitingLists WHERE StudentId = ? and ClassId= ?", [StudentId,ClassId])
     waitingList = cur.fetchone()
     if not waitingList:
@@ -288,6 +330,22 @@ def retrieve_waitinglist_position(
 def delete_waitinglist(
     StudentId: int, ClassId: int, db: sqlite3.Connection = Depends(get_db)
 ):
+    # checking if student exist
+    cur = db.execute("Select * from Students where StudentId = ?",[StudentId])
+    entry = cur.fetchone()
+    if(not entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Student Does Not Exist',
+            )
+    # checking if class exist
+    cur = db.execute("Select * from classes where ClassId = ?",[ClassId])
+    entry = cur.fetchone()
+    if(not entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Class Does Not Exist',
+            )
     # Checking if entry exist in waitinglist
     cur = db.execute("SELECT * FROM WaitingLists WHERE StudentId = ? and ClassId= ?", [StudentId,ClassId])
     waitingList = cur.fetchone()
@@ -327,11 +385,20 @@ Instructors API ENDPOINTS
 def retrieve_Instructors_Classes(
     InstructorId: int, db: sqlite3.Connection = Depends(get_db)
 ):
+    # checking if instructor exist
+    cur = db.execute("Select * from instructors where InstructorId = ?",[InstructorId])
+    entry = cur.fetchone()
+    if(not entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Instructor Does Not Exist',
+            )
+    
     cur = db.execute("SELECT classname,currentenrollment FROM Classes WHERE InstructorId = ?", [InstructorId])
     instructorClasses = cur.fetchall()
     if not instructorClasses:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Instructor does not have any classes"
         )
     return  {
             "instructorClasses": instructorClasses
@@ -342,11 +409,20 @@ def retrieve_Instructors_Classes(
 def retrieve_Classes_WaitingList(
     ClassId: int, db: sqlite3.Connection = Depends(get_db)
 ):
+    # checking if class exist
+    cur = db.execute("Select * from classes where ClassId = ?",[ClassId])
+    entry = cur.fetchone()
+    if(not entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Class Does Not Exist',
+            )
+    
     cur = db.execute("SELECT * FROM WaitingLists WHERE ClassId = ?", [ClassId])
     classesWaitingList = cur.fetchall()
     if not classesWaitingList:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Waiting List doest not exist for this class"
         )
     return  {
             "Total Waitlisted Students": len(classesWaitingList),
@@ -354,15 +430,23 @@ def retrieve_Classes_WaitingList(
             }
 
 # View Students Who Have Dropped the Class
-@app.get("/instructors/{ClassId}/dropped-students/",status_code=status.HTTP_200_OK)
+@app.get("/instructors/{ClassId}/dropped-students",status_code=status.HTTP_200_OK)
 def retrieve_instructors_dropped_students(
     ClassId:int, db: sqlite3.Connection = Depends(get_db)
 ):
+    # checking if class exist
+    cur = db.execute("Select * from classes where ClassId = ?",[ClassId])
+    entry = cur.fetchone()
+    if(not entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Class Does Not Exist',
+            )
     cur = db.execute("SELECT StudentId FROM Enrollments WHERE  ClassId = ? and Dropped = 1", [ClassId])
     studentsWhoDropped = cur.fetchall()
     if not studentsWhoDropped:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="No students have dropped this class"
         )
     return  {
             "Dropped Students": studentsWhoDropped
@@ -373,16 +457,25 @@ def retrieve_instructors_dropped_students(
 def drop_students_administratively(
     InstructorId:int, StudentId:int, ClassId:int, db: sqlite3.Connection = Depends(get_db)
 ):
+    # checking if instructor exist
+    cur = db.execute("Select * from instructors where InstructorId = ?",[InstructorId])
+    entry = cur.fetchone()
+    if(not entry):
+        raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail= 'Instructor Does Not Exist',
+            )
+    
+    # check if class exists
     cur = db.execute("select CurrentEnrollment, MaxEnrollment, AutomaticEnrollmentFrozen, InstructorId from Classes where ClassId = ?",[ClassId])
     entries = cur.fetchone()
-    # check if class exists
     if(not entries):
-        raise HTTPException(status_code=400, detail="Class does not exist")
+        raise HTTPException(status_code=404, detail="Class does not exist")
     currentEnrollment, maxEnrollment, automaticEnrollmentFrozen, instructorId = entries
 
     # checking if InstructorId is valid
     if(InstructorId != instructorId):
-        raise HTTPException(status_code=400, detail="You are not the instructor of this class")
+        raise HTTPException(status_code=403, detail="You are not the instructor of this class") # Forbidden srtatus code
 
     # Checking if student was enrolled to the course
     cur = db.execute(
@@ -392,7 +485,7 @@ def drop_students_administratively(
         [ClassId, StudentId])
     entries = cur.fetchone()
     if(not entries):
-        raise HTTPException(status_code=400, detail="Student is not enrolled in this class")
+        raise HTTPException(status_code=404, detail="Student is not enrolled in this class") #Not Found 
      
     # dropping the course
     try:
