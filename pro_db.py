@@ -13,7 +13,10 @@ def create_database():
             Email TEXT
         )
     ''')
-    conn.execute("insert into Instructors(FirstName,LastName,Email) values('Jane','Doe','abc@gmail.com');")
+    conn.executescript('''
+                        insert into Instructors(FirstName,LastName,Email) values('Dr.Jane','Doe','abc@gmail.com');
+                        insert into Instructors(FirstName,LastName,Email) values('Dr.John','Doe','johndoe@gmail.com');
+                       ''')
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS Classes (
@@ -28,9 +31,14 @@ def create_database():
             AutomaticEnrollmentFrozen INTEGER DEFAULT 0
         )
     ''')
-    conn.execute("insert into Classes(Department,CourseCode,SectionNumber,ClassName,InstructorID,\
+    conn.executescript('''
+                    insert into Classes(Department,CourseCode,SectionNumber,ClassName,InstructorID,\
                  CurrentEnrollment,MaxEnrollment) values('Computer Science','CPSC449',1,\
-                 'Web-backend Engineering',1,34,40);")
+                 'Web-backend Engineering',1,34,40);
+                    insert into Classes(Department,CourseCode,SectionNumber,ClassName,InstructorID,\
+                 CurrentEnrollment,MaxEnrollment) values('Computer Science','CPSC332',1,\
+                 'Compilers Design',2,40,40);
+                 ''')
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS Students (
@@ -40,7 +48,10 @@ def create_database():
             Email TEXT
         )
     ''')
-    conn.execute("insert into Students(FirstName,LastName,Email) values('John','Doe','xyz@gmail.com');")
+    conn.executescript('''
+                    insert into Students(FirstName,LastName,Email) values('John','Doe','xyz@csuf.fullerton.edu');
+                    insert into Students(FirstName,LastName,Email) values('Jane','Doe','abc@csuf.fullerton.edu');
+                     ''')
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS Enrollments (
@@ -52,7 +63,7 @@ def create_database():
         )
     ''')
     
-    # conn.execute("insert into Enrollments(StudentID,ClassID,EnrollmentDate) values(1,1,datetime('now'));",)
+    conn.execute("insert into Enrollments(StudentID,ClassID,EnrollmentDate) values(1,1,datetime('now'));",)
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS WaitingLists (
@@ -72,12 +83,3 @@ def create_database():
     conn.close()
 
 create_database()
-
-
-# conn = sqlite3.connect("pro1.db")  
-# cursor = conn.cursor()
-# conn.execute("insert into Classes(Department,CourseCode,SectionNumber,ClassName,InstructorID,\
-#               CurrentEnrollment,MaxEnrollment) values('Computer Science','CPSC541',1,\
-#             'Advance Software Process',2,40,40);")
-# conn.commit()
-# conn.close()
