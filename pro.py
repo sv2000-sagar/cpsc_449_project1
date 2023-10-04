@@ -442,7 +442,7 @@ def retrieve_instructors_dropped_students(
                 status_code=status.HTTP_409_CONFLICT,
                 detail= 'Class Does Not Exist',
             )
-    cur = db.execute("SELECT StudentId FROM Enrollments WHERE  ClassId = ? and Dropped = 1", [ClassId])
+    cur = db.execute("SELECT * FROM Students WHERE StudentId in (SELECT StudentId FROM Enrollments WHERE  ClassId = ? and Dropped = 1)", [ClassId])
     studentsWhoDropped = cur.fetchall()
     if not studentsWhoDropped:
         raise HTTPException(
