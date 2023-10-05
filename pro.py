@@ -640,6 +640,17 @@ def remove_section(
             DELETE FROM Classes WHERE ClassId= ? 
             """,
             [ClassId])
+        # Remove students from enrollments and waitlists
+        db.execute(
+            """
+            DELETE FROM Enrollments WHERE ClassId= ? 
+            """,
+            [ClassId])
+        db.execute(
+            """
+            DELETE FROM WaitingLists WHERE ClassId= ? 
+            """,
+            [ClassId])
         db.commit()
     except sqlite3.IntegrityError as e:
         db.rollback()
