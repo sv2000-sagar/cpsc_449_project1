@@ -32,9 +32,12 @@ def get_db():
         db.row_factory = sqlite3.Row
         yield db
 
-@app.get("/",status_code=status.HTTP_308_PERMANENT_REDIRECT)
+@app.get("/",status_code=status.HTTP_200_OK)
 def default():
-    return RedirectResponse("/docs")
+    hidden_paths = ["/openapi.json", "/docs/oauth2-redirect", "/redoc", "/openapi.json", "/docs", "/"]
+    url_list = list(filter(lambda x: x["path"] not in hidden_paths, [{"path" : route.path, "name": route.name} for route in app.routes]))
+    return {"routes" : url_list, "message" : f'{len(url_list)} routes found'}
+    # return RedirectResponse("/docs")
 
 """
 STUDENTS API ENDPOINTS
