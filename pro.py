@@ -351,7 +351,7 @@ def retrieve_waitinglist_position(
         )
     return  {
             "data": waitingList,
-            "WaitingListPos":waitingList['waiting_list_position']
+            # "WaitingListPos":waitingList['waiting_list_position']
             }
     
 
@@ -495,6 +495,7 @@ def retrieve_Classes_WaitingList(
     
     cur = db.execute("""SELECT 
                      WaitListId,
+                     Students.StudentId,
                      Students.FirstName || ', ' || Students.LastName as student_name,
                      ClassId,
                      WaitingListPos,
