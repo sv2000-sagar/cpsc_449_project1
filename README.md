@@ -29,15 +29,17 @@ Allow Registrar to:
   
 ## Installation
 1. Clone this project
-2. Install dependencies using "pip install -r requirements.txt"
-3. Run database seed script (pro_db.py) using "python pro_db.py"
+2. Install dependencies using ```pip install -r requirements.txt```
+3. Run database seed script (pro_db.py) using ```python pro_db.py```
 
 ## Run this project
 On Windows/Mac (using uvicorn)
-1. Run this command "uvicorn pro:app --reload"
+1. Run this command ```uvicorn pro:app --reload```
    
 On Linux (using foreman)
 1. Install Foreman</br>
-   sudo apt update </br>
-   sudo apt install --yes ruby-foreman </br>
-2. Run this command "foreman start"
+```
+   sudo apt update 
+   sudo apt install --yes ruby-foreman 
+```
+2. Run this command ```foreman start```
